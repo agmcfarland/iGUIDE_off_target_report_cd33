@@ -1,0 +1,398 @@
+---
+title: 'iGUIDE run CV6JW in silico predictors'
+output: html_document
+date: '2023-06-16'
+---
+
+# Introduction
+
+We compared on and off target sites identified by iGUIDE to those predicted by two bioinformatic tools: 1. COSMIC (https://crispr.bme.gatech.edu/) and 2. IDT (https://www.idtdna.com/site/order/designtool/index/CRISPR_SEQUENCE). For all methods we used GAGTCAGTGACGGTACAGGA as the input guide RNA and used the hg38 genome as a reference.
+
+Different tools have slight differences in where the specific edit site is reported, e.g. edit site starts at PAM, starts at PAM - 4, etc. In order to capture the edit site for each tool, all edit sites within 100 basepairs of each other were grouped into unique edit site ids. This approach resulted in 229 unique edit site ids. Edit site ids were at a minimum 2,501 bp from each other, with a mean of 8,417,950 bp.
+
+We found that iGUIDE, COSMIC, and IDT had four edit sites in agreement: The two on-target sites at chr19:+:51211265 and chr19:+:51225275, and two other off target sites. Additionally, iGUIDE and IDT agreed on two off-target sites which COSMID did not detect.
+
+Apart from these agreements, iGUIDE detected 135 unique off-target sites, IDT detected 100 unique off-target sites, and COSMID detected 8 unique off-target sites. 
+
+The full dataset of each edit site, the method that detected it, the edit_site_id, the score applied by the tool to the edit site, and the number of tools that detected that edit site, are available in the file "standardized_cut_site_overlaps_long.csv". 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Libraries
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+iguide_output_dir <- file.path('/data/iGUIDE/analysis/saar_gill_000000000-CV6JW/output')
+post_run_analysis_dir <- file.path('/data/iGUIDE/projects/saar_gill/200128_M03249_0049_000000000-CV6JW/post_run_analysis')
+```
+
+<!-- # Data modification -->
+
+<!-- ```{r echo=FALSE, message=FALSE, warning=FALSE} -->
+
+<!-- # eval_data <- readRDS(file.path(iguide_output_dir, 'iguide.eval.saar_gill_000000000-CV6JW.rds')) -->
+<!-- #  -->
+<!-- # incorp_sites <- readRDS(file.path(iguide_output_dir, 'incorp_sites.saar_gill_000000000-CV6JW.rds')) -->
+<!-- #  -->
+<!-- # stats_core <- read.csv(file.path(iguide_output_dir, 'stats.core.saar_gill_000000000-CV6JW.csv')) -->
+<!-- #  -->
+<!-- # stats_eval <- read.csv(file.path(iguide_output_dir, 'stats.eval.saar_gill_000000000-CV6JW.csv')) -->
+
+<!-- # View(incorp_sites$reads) -->
+
+<!-- df1 <- read.csv(file.path(post_run_analysis_dir, 'eval_table.csv')) -->
+
+<!-- ``` -->
+
+<!-- # Distribution of abundances -->
+
+<!-- ```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width = 10, fig.height = 5} -->
+<!-- ggplot(df1, aes(x = abund)) + -->
+<!--   facet_wrap(~specimen, scales = 'free', ncol = 2) + -->
+<!--   geom_histogram(binwidth = 1) + -->
+<!--   theme_classic() -->
+<!-- ``` -->
+
+
+<!-- # Adjusted on-target efficiency -->
+
+<!-- ```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width = 10, fig.height = 5} -->
+
+<!-- df_adj <- df1 %>% -->
+<!--   dplyr::filter(abund > 1) %>% -->
+<!--   dplyr::group_by(specimen) %>% -->
+<!--   dplyr::mutate(total_all = sum(abund)) %>% -->
+<!--   dplyr::ungroup() %>% -->
+<!--   dplyr::group_by(specimen, target) %>% -->
+<!--   dplyr::mutate(total_by_target = sum(abund)) %>% -->
+<!--   dplyr::ungroup() %>% -->
+<!--   dplyr::filter(target == 'On') %>% -->
+<!--   dplyr::select(specimen, total_all, total_by_target) %>% -->
+<!--   base::unique() %>% -->
+<!--   dplyr::mutate(percentage = (total_by_target/total_all) * 100)  -->
+
+<!-- eval_data -->
+<!-- ``` -->
+
+
+# In-silico off-target comparison
+
+<!-- ## Standardize in silico results -->
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width = 10, fig.height = 5}
+
+reformat_prediction_outputs <- function(file){
+  #' Open output files from different bioinformatic tools.
+  
+  filename <- basename(file)
+  
+  if (stringr::str_starts(filename, 'ABEdeepoff') == TRUE){
+    df1 <- readxl::read_excel(file, skip = 1) %>%
+      dplyr::select(Chromosome, Position, efficiency) %>%
+      dplyr::mutate(method = 'ABEdeepoff') %>%
+      dplyr::rename(chromosome = Chromosome, position = Position, score = efficiency)
+    
+  } else if (stringr::str_starts(filename, 'CasOFFinder') == TRUE){
+    df1 <- readxl::read_excel(file, skip = 0) %>%
+      dplyr::select(Chromosome, Position) %>%
+      dplyr::mutate(method = 'CasOFFinder',
+                    score = NA_real_) %>%
+      dplyr::rename(chromosome = Chromosome, position = Position)
+    
+  } else if (stringr::str_starts(filename, 'CCTop') == TRUE){ # had to manually resvae as xlsx because it was corrupted.
+    df1 <- readxl::read_excel(file, skip = 15) %>%
+      dplyr::filter(stringr::str_starts(Chromosome, 'chr')) %>%
+      dplyr::select(Chromosome, start, distance) %>%
+      dplyr::mutate(method = 'CCTop',
+                    score = NA_real_) %>%
+      dplyr::rename(chromosome = Chromosome, position = start)
+    
+  } else if (stringr::str_starts(filename, 'CHOPCHOP') == TRUE){
+    df1 <- readxl::read_excel(file, skip = 5) %>%
+      dplyr::filter(stringr::str_starts(Location, 'chr'),
+                    stringr::str_detect(Location, '_alt') == FALSE) %>%
+      tidyr::separate(Location, into = c('chromosome', 'position')) %>%
+      dplyr::select(chromosome, position) %>%
+      dplyr::mutate(method = 'CHOPCHOP',
+                    score = NA_real_)
+    
+  } else if (stringr::str_starts(filename, 'COSMID') == TRUE){
+    df1 <- readxl::read_excel(file, skip = 0) %>%
+      tidyr::separate(`Chr Position`, into = c('chromosome', 'position2', 'position3')) %>%
+      dplyr::select(chromosome, `Cut site`, Score) %>%
+      dplyr::mutate(method = 'COSMID') %>%
+      dplyr::rename(position = `Cut site`, score = Score)
+    
+  } else if (stringr::str_starts(filename, 'CRISPOR') == TRUE){
+    df1 <- readxl::read_excel(file, skip = 8) %>%
+      dplyr::select(chrom, start, cfdOfftargetScore) %>% # has mit and cfd scores, according to paper, cfd score performed best so using this one
+      dplyr::rename(chromosome = chrom, position = start, score = cfdOfftargetScore) %>%
+      dplyr::mutate(method = 'CRISPOR',
+                    score = NA_real_)
+    
+  } else if (stringr::str_starts(filename, 'CRISPRme') == TRUE){
+    df1 <- readxl::read_excel(file, skip = 0) %>%
+      dplyr::select(Chromosome, `Start_coordinate_(highest_CFD)`, `CFD_score_(highest_CFD)`) %>%
+      dplyr::mutate(method = 'CRISPRme') %>%
+      dplyr::rename(chromosome = Chromosome, position = `Start_coordinate_(highest_CFD)`, score = `CFD_score_(highest_CFD)`)
+    
+  } else if (stringr::str_starts(filename, 'CRISPRoff') == TRUE){
+    df1 <- readxl::read_excel(file, skip = 0) %>%
+      tidyr::separate(Coordinates, into = c('chromosome', 'position', 'position2', 'position3'), remove = FALSE) %>%
+      dplyr::select(chromosome, position2, CRISPRoff) %>%
+      dplyr::mutate(method = 'CRISPRoff') %>%
+      dplyr::rename(position = position2, score = CRISPRoff)
+    
+  } else if (stringr::str_starts(filename, 'CRISTA') == TRUE){
+    df1 <- read.csv(file, skip = 0) %>%
+      dplyr::select(chromosome, end.position, CRISTA.score) %>%
+      dplyr::mutate(method = 'CRISTA') %>%
+      dplyr::rename(position = end.position, score = CRISTA.score)
+    
+  } else if (stringr::str_starts(filename, 'IDT') == TRUE){
+    df1 <- readxl::read_excel(file, skip = 0) %>%
+      tidyr::separate(Locus, into = c('chromosome', 'position')) %>%
+      dplyr::mutate(method = 'IDT',
+                    score = ifelse(Score == 'N/A', 0, as.numeric(Score))) %>% # gives warning: "NAs introduced by coercion" but produces correct output.
+      dplyr::select(chromosome, position, score, method)
+    
+  } else {
+    print('woo')
+  }
+  df1 <- df1 %>% 
+    dplyr::select(chromosome, position, score, method)
+  return(df1)
+}
+
+df_predict <- data.frame()
+for (file in list.files(file.path(post_run_analysis_dir, 'insilico_offtarget_predictions'), full.names = TRUE, pattern = "\\.(csv|xlsx|xls)$")){
+  # print(file)
+  df_predict <- rbind(
+    df_predict,
+    reformat_prediction_outputs(file = file))
+}
+  
+write.csv(df_predict, file.path(post_run_analysis_dir, 'combined_cut_predictions.csv'), row.names = FALSE)
+```
+
+<!-- ## Compare -->
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+df_exp <- read.csv(file.path(post_run_analysis_dir, 'eval_table.csv')) %>%
+  tidyr::separate(edit.site, into = c('chromosome', 'position')) %>%
+  dplyr::mutate(method = 'iGUIDE') %>%
+  dplyr::filter(specimen %in% c('GTSP3407','GTSP3411','GTSP3415','GTSP3419','GTSP3421')) %>%
+  dplyr::select(chromosome, position, abund, method) %>%
+  dplyr::rename(score = abund) %>%
+  dplyr::group_by(chromosome, position) %>%
+  dplyr::arrange(desc(score)) %>%
+  dplyr::slice(1) %>%
+  dplyr::ungroup() %>%
+  base::unique()
+
+df_predict <- read.csv(file.path(post_run_analysis_dir, 'combined_cut_predictions.csv'))
+
+df_comb <- rbind(df_exp, df_predict)
+
+df_comb <- df_comb %>%
+  dplyr::mutate(
+    position = as.numeric(position),
+    position_low = position - 100,
+    position_high = position + 100) %>%
+  dplyr::filter(
+    stringr::str_detect(chromosome, '_alt') != TRUE
+  ) %>%
+  dplyr::mutate(chromosome = stringr::str_replace(chromosome, 'Chr', 'chr')) %>%
+  base::unique()
+
+df_comb <- df_comb %>%
+  dplyr::arrange(desc(score))
+
+df_unique_sites <- df_comb %>%
+  dplyr::select(chromosome, position) %>%
+  base::unique()
+
+df_store <- data.frame()
+for (i in 1:nrow(df_unique_sites)){
+  # print(i)
+  row <- df_unique_sites[i, ]
+  df_temp <- df_comb %>%
+    dplyr::filter(
+      chromosome == row$chromosome,
+      row$position >= position_low,
+      position_high >= row$position,
+    ) %>%
+    dplyr::mutate(unique_methods = length(base::unique(method)),
+                  position_lowest = min(position_low))
+  df_store <- rbind(df_store, df_temp)
+}
+
+df_store <- df_store %>%
+  base::unique() %>%
+  dplyr::arrange(desc(unique_methods)) %>%
+  dplyr::group_by(position_lowest) %>%
+  dplyr::mutate(edit_site_id = cur_group_id()) %>%
+  dplyr::ungroup()
+
+## Write to file
+write.csv(df_store %>% dplyr::select(chromosome, position, score, method, unique_methods, edit_site_id), file.path(post_run_analysis_dir, 'standardized_cut_site_overlaps_long.csv'), row.names = FALSE)
+
+df_overlaps <- df_store %>%
+  dplyr::select(chromosome, position_lowest, unique_methods, method, edit_site_id) %>%
+  base::unique() %>%
+  dplyr::mutate(count = 1) %>%
+  tidyr::pivot_wider(names_from = 'method', values_from = 'count', values_fill = 0)
+```
+
+
+## Number of unique sites with overlaps
+
+The graph below shows how many unique edit sites (edit site IDs) were identified by each method, two methods, or three methods These categories are not inclusive, meaning that, for example, two methods identified the same two unique edit sites, and three methods identified the same four edit sites.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width = 6, fig.height = 6}
+
+df_abundance_plot <- df_overlaps %>%
+  dplyr::group_by(unique_methods) %>%
+  dplyr::summarize(count = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(unique_methods_factor = factor(unique_methods, levels = base::unique(unique_methods)))
+
+p1 <- ggplot(df_abundance_plot,
+       aes(x = unique_methods_factor, y = count)) +
+  geom_col(stat = 'identity', width = 0.5, color = 'white') +
+  geom_text(aes(label = count), nudge_y = 5) +
+  theme_classic() +
+  theme(text = element_text(size = 15)) +
+  labs(x = 'number of methods identifying edit site', y = 'count of unique edit sites') +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, max(df_abundance_plot$count) + 25)) +
+  labs(title = 'Number of unique sites identified\n by overlapping methods')
+
+print(p1)
+
+```
+
+The graph below examines only edit sites identified by a single method. Here, iGUIDE identified 135 edit sites not found by other methods, IDT identified 100, and COSMID identified 8.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width = 6, fig.height = 6}
+
+df_abundance_plot2 <- df_store %>%
+  dplyr::mutate(unique_methods == 1) %>%
+  dplyr::select(chromosome, position, method) %>%
+  base::unique() %>%
+  dplyr::group_by(method) %>%
+  dplyr::mutate(count = length(chromosome)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(count, method) %>%
+  base::unique() %>%
+  dplyr::mutate(
+    method_factor = factor(method, 
+                         levels = c(
+                           'iGUIDE', 'IDT', 'COSMID'
+                         )))
+
+p1 <- ggplot(df_abundance_plot2,
+       aes(x = method_factor, y = count)) +
+  geom_col(stat = 'identity', width = 0.5, color = 'white') +
+  geom_text(aes(label = count), nudge_y = 5) +
+  theme_classic() +
+  theme(text = element_text(size = 15)) +
+  labs(x = 'number of methods identifying edit site', y = 'count of unique edit sites') +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, max(df_abundance_plot2$count) + 20)) +
+  labs(title = 'Number of unique sites identified\n by one method')
+
+print(p1)
+
+```
+
+
+## Overlap heat map 
+
+The graph below is a heatmap showing all edit sites that were found by at least two or more methods.  The plot is faceted by the number of methods that detected the same edit site (2 or 3), the X-axis shows the edit site id and the edit site position, and the Y-axis shows the method. The heatmap is colored by where the method detected the site or not (True or False).
+
+Chr19:51211265 On-target 1
+
+Chr19:51225275 On-target 2
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width = 10, fig.height = 6}
+
+distance_from_nearest_other <- c()
+for (i in 1:nrow(df_overlaps)){
+  # print(i)
+  row <- df_overlaps[i, ]
+  shortest_distance <- df_overlaps %>%
+    dplyr::filter(chromosome == row$chromosome,
+                  position_lowest != row$position_lowest) %>%
+    dplyr::mutate(distance = abs(position_lowest - row$position_lowest)) %>%
+    dplyr::pull(distance) %>% 
+    base::min()
+  distance_from_nearest_other <- c(distance_from_nearest_other, shortest_distance)
+}
+
+df_overlaps$distance_to_nearest_other <- distance_from_nearest_other
+
+df_overlaps_plot <- df_overlaps %>%
+  # dplyr::mutate(target = ifelse(position_lowest == 198706535, 'On', 'Off')) %>%
+  dplyr::arrange(unique_methods, iGUIDE, COSMID, IDT) %>%
+  dplyr::mutate(plot_id = seq(1, nrow(.))) %>%
+  tidyr::pivot_longer(cols = -c(chromosome, position_lowest, unique_methods, plot_id, distance_to_nearest_other, edit_site_id),names_to = 'method', values_to = 'detected') 
+
+df_overlaps_plot <- merge(
+  df_overlaps_plot,
+  df_store %>%
+    dplyr::filter(method == 'iGUIDE') %>%
+    dplyr::select(chromosome, position, edit_site_id) %>%
+    dplyr::rename(iguide_chromosome = chromosome, iguide_position = position) %>%
+    base::unique(),
+  by = 'edit_site_id',
+  all.x = TRUE
+) %>%
+  base::unique()
+
+df_overlaps_plot <- df_overlaps_plot%>%
+  dplyr::mutate(plot_id2 = paste0('group:',edit_site_id,'\n',iguide_chromosome, ':', iguide_position),
+                plot_id2 = factor(plot_id2, levels = unique(plot_id2)),
+                method_factor = factor(method, 
+                                       levels = c(
+                                         'iGUIDE', 'IDT', 'COSMID'
+                                       )),
+                on_target = dplyr::case_when(
+                  iguide_position %in% c(51211265, 51225275) ~ 'on',
+                  TRUE ~ 'off'
+                ),
+                on_target = factor(on_target, levels = c('off', 'on')),
+                detected = ifelse(detected == 1, 'True', 'False'),
+                detected = factor(detected, levels = c('False', 'True')))
+
+  
+p1 <- ggplot(df_overlaps_plot %>%
+         dplyr::filter(unique_methods > 1),
+       aes(x = plot_id2, y = method, fill = as.factor(detected))) +
+  facet_grid(method_factor ~ unique_methods, scales = 'free', space = 'free') +
+  geom_tile(aes(color = on_target), size = 2, width = 0.5, height = 0.5) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    axis.title.x = element_blank(),
+    strip.background.y = element_blank(),
+    strip.background.x = element_rect(fill = 'lightblue', color = 'transparent'),
+    strip.text.y = element_blank(),
+    text = element_text(size = 20)) +
+  scale_color_manual(values = c('white', 'black')) +
+  guides(color = guide_legend(override.aes = list(fill = c('white','black')))) +
+  labs(fill = 'Detected', y = 'Method', x = 'Edit site group', color = 'On\ntarget')
+
+print(p1)
+
+```
+
+
+
+
+
+
